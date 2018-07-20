@@ -1,0 +1,229 @@
+---
+title: "Biomass plots"
+author: "Joe Glass-Katz"
+date: "7/6/2018"
+output: html_document
+---
+This file is to plot and explore the allometric equations taken from the Forest 2017 paper. The Pdf is located on the google drive
+https://drive.google.com/drive/folders/1kODqAvB6VIYmyG0XjEuW1cKZjdAzC1iM?ogsrc=32
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r}
+library(readr)
+library(ggplot2)
+library(dplyr)
+library(data.table)
+```
+
+make some plots
+```{r}
+#These are the averaged functions
+pineAGB <- function(d,h) 0.0291*d^1.74165*h^1.16614 + 0.02029*d^1.33299*h^0.92887 + 0.02508*d^1.83773*h^0.54626 + 0.05227*d^1.28231*h^0.43275 
+oakAGB <- function(d,h){0.11618*d^1.77395*h^0.68708 + 0.00827*d^2.54589 + 0.0502*d^1.97638*h^0.34229 + 0.08234*d^1.59396}
+
+#Paramatrize using measured values
+pinePlot <- ggplot(data = data.frame(x=0), aes(x=x)) + 
+  stat_function(fun = pineAGB, args =list(h=10), aes(color = 'H=10')) +
+  stat_function(fun = pineAGB, args =list(h=20), aes(color = 'H=20'))+
+  stat_function(fun = pineAGB, args =list(h=30), aes(color = 'H=30'))+ scale_x_continuous(name = "Diameter (cm)", breaks = seq(5,60,10), limits = c(5,60))+
+scale_y_continuous(name = "Estimated AGB")+
+scale_color_manual(name = "Heights", values = c("blue", "green","deeppink"))+ ggtitle("AGB for Pine Trees")  
+
+oakPlot <- ggplot(data = data.frame(x=0), aes(x=x)) + 
+  stat_function(fun = oakAGB, args =list(h=5), aes(color = 'H=5')) +
+  stat_function(fun = oakAGB, args =list(h=15), aes(color = 'H=15'))+
+  stat_function(fun = oakAGB, args =list(h=25), aes(color = 'H=25'))+ scale_x_continuous(name = "Diameter (cm)", breaks = seq(5,60,10), limits = c(5,60))+
+scale_y_continuous(name = "Estimated AGB")+
+scale_color_manual(name = "Heights", values = c("blue", "green","deeppink"))+ ggtitle("AGB for Oak Trees")
+
+#Now do foliage for pine and oak
+pineFAGB <-function(d,h) 0.05227*d^1.28231*h^0.43275
+oakFAGB <-function(d) 0.08234*d^1.59396
+
+#Does the crown area scale at the same rate as the FAGB??
+
+#Diameter to height equations (cm->m)
+angiosperm <- function(d) 2.37*d^.53
+gymnosperm <- function(d) 3.21*d^.6
+Evergreen <- function(d) 3.25*d^.6
+Deciduous <- function(d) 2.35*d^.53  
+
+
+#DBH to height for Pine trees (RC25)
+#file:///Users/jsg1/Desktop/Groundwater%20Research/RC25.pdf
+#Model equation H =4.5 + exp(a0 + a1DBH^a2)
+#Divide by 2.54 to convert to cm and multiply by .3048 tp get m
+dougfirH <-function(D) (4.5 + exp(7.262195456 -5.899759104*(D/2.54)^ -0.287207389)) *.3048
+
+ralderH <-function(D) (4.5 + exp( 4.41820972 -12.00274935*(D/2.54)^ -2.13835482))*.3048 
+
+sspruH <-function(D) (4.5+exp( 5.404491308-6.570862442*(D/2.54)^ -0.819705048)) *.3048
+
+hemlockH<-function(D) (4.5 + exp( 6.555344622-5.137174162*(D/2.54)^-0.3645508))*.3048 
+
+rcedarH<-function(D) (4.5+exp( 7.232880669-5.746899904*(D/2.54)^-0.271564741))*.3048
+
+wpineH<-function(D) (4.5 + exp( 7.946192109 -6.278973035*(D/2.54)^ -0.208892429))*.3048
+
+pineMeanH <-function(x) (dougfirH(x) + hemlockH(x) + sspruH(x)+ rcedarH(x) +wpineH(x))/5 
+
+PineHplot <- ggplot(data = data.frame(x=0), aes(x=x)) + 
+  stat_function(fun = dougfirH, aes(color = "Dougfir")) +
+  stat_function(fun = ralderH, aes(color = "Alder")) + 
+  stat_function(fun = sspruH, aes(color = "Spruce")) +
+  stat_function(fun = hemlockH, aes(color = "Hemlock")) +
+  stat_function(fun = rcedarH, aes(color = "Cedar")) + 
+  stat_function(fun = wpineH, aes(color = "WhitePine"))+
+  stat_function(fun = pineMeanH, aes(color = "Average")) + 
+  scale_x_continuous(name = "Diameter (cm)", breaks = seq(5,60,10), limits = c(5,60))+
+  scale_y_continuous(name = "Estimated Height (m)")+
+  scale_color_discrete(name = "Species" )+
+  ggtitle("DBH to Height Gymnosperms")
+
+#Generate points, flip the equation, regress to get an estimate
+d <- seq(5,100,.01)
+h <- pineMeanH(d)
+df <- data.frame(d,h)
+lmH<-lm(log(d)~ h, data =df)
+plot(lmH$residuals)
+#Simple exponential model for DBH pine is d = exp(1.938 + .05272h)
+loglogH <-lm(log(d)~log(h), data=df)
+plot(loglogH$residuals)
+#Loglog is d = e^-0.769598 * h^1.320069
+#more complicated using the equation from the paper (with start at where?)
+#lower bound needs to be determined (change the 4.5)
+Hfun<-function(a0,a1,a2,d){4.5 + exp(a0 + a1*d^a2)}
+complexfit <- nls(h~Hfun(a0,a1,a2,d), start = list(a0=6,a1=-6,a2=-.3), data = df)
+complexfit
+a0<- 4.8565
+a1 <- -10.2234
+a2 <- -.5086
+cfit <- function(d) 4.5 + exp(a0 + a1*d^a2)
+genH <- function(d) exp(.769598)*d^.7575
+lemH <- function(d) (log(d)-1.938) *(1/.05272)
+PineHplot + 
+  stat_function(fun = genH, aes(color ="loglog")) + 
+  stat_function(fun = lemH, aes(color = "Log D") ) + 
+  stat_function(fun = cfit, aes(color = "fitted model"))
+#Fitted model clearly dominates. Use the complexfit for model
+
+#make this "githubbable"
+
+
+#Now let's do oak DBH to H
+#There is a severe lack of data containing this information. Need to comb through the files in the google drive to see if there is something more usable there
+
+```
+
+#Relevant wood density & specific gravities
+```{r}
+
+pinusWD <- .433
+quercusWD <- .65
+#https://www.fs.fed.us/nrs/pubs/jrnl/2014/nrs_2014_chojnacky_001.pdf
+pinusWSG <- .43
+oakWSG <- .58
+
+#Allometric equations from the above paper
+#They take a generalized measurement
+pinusAGB1<- function(D) exp(-2.6177+ 2.4638*log(D))
+pinusAGB2 <-function(D) exp(-3.0506+ 2.6465*log(D))
+pinusAGBa <-function(D) (exp(-2.6177+ 2.4638*log(D)) + exp(-3.0506+ 2.6465*log(D)))/2
+quercusAGB1 <-function(D) exp(-2.1505 + 2.4410*log(D))
+
+#an alternative oak AGB from https://www.sciencedirect.com/science/article/pii/S0961953413004935
+quercusAGB2 <-function(d)  0.0683*d^2.5697
+```
+
+#Compare the two sets of allometric equations
+```{r}
+#Subbing in the height to diameter equations to solve for D let's compare these two sets of equations.
+#First for pine
+d <- seq(5,100,.01)
+agb <- pinusAGBa(d)
+df1 <- data.frame(d,agb)
+agbfun <- function(d,b0,b1) exp(b0 + b1*log(d))
+agpine <- nls(agb ~agbfun(b0,b1,d), start = list(b0 = -2.7, b1 = 2.5), data =df1)
+agpine
+b0 <- -2.886
+b1 <- 2.571
+#Put the first pine function just in terms of D
+pine.No.H <- function(d) pineAGB(d=d,h=Hfun(a0,a1,a2,d))
+#Simplify agbfun
+agbfun1 <- function(d) exp(-2.866 +2.571*log(d))
+
+#Compare these two functions
+pineAGBCompare <- ggplot(data = data.frame(x=0), aes(x=x)) +
+  stat_function(fun = pine.No.H, aes(color ="Formula1")) + 
+  stat_function(fun = agbfun1, aes(color ="Formula2")) +
+  scale_x_continuous(name = "Diameter (cm)", breaks = seq(5,60,10), limits = c(5,60))+
+  scale_y_continuous(name = "Estimated AGB")+
+  scale_color_discrete(name = "Model" )+
+  ggtitle("DBH to AGB Gymnosperms(pines)")
+
+pineAGBCompare
+#We can take the average of these two equations to find a good neutral estimate for pine tree allometry. We just need to determine our ideal functional form and the rest is trivial.
+#Straight power law is fine
+pAGB.ave <- function(b0,b1,d) 
+
+#Finding now the oak height to density equation
+#for lack of a good oak average DBH to H we will use as a stand in the generalized angiosperm equation
+oak.No.H <- function(d) oakAGB(d,angiosperm(d))
+oakAGBCompare <- ggplot(data = data.frame(x=0), aes(x=x)) +
+  stat_function(fun = oak.No.H, aes(color ="Formula1")) + 
+  stat_function(fun = quercusAGB1, aes(color ="Formula2")) +
+  stat_function(fun = quercusAGB2, aes(color ="Formula3")) +
+  scale_x_continuous(name = "Diameter (cm)", breaks = seq(5,60,10), limits = c(5,60))+
+  scale_y_continuous(name = "Estimated AGB")+
+  scale_color_discrete(name = "Model" )+
+  ggtitle("DBH to AGB Oaks")
+
+oakAGBCompare
+#While formula1 and formula2 are derived from different sources they appear to map very similar results. This lends credibility to their assessment. It suggests we could use either one safely or a combination of the two. One could weigh the third formula more heavily in a combination of the three if we believed that oaks do not add much biomass with additional diameter when they become very large. 
+oakAGB.ave = function(b0,b1,d) exp(b0 + b1*log(d))
+
+```
+
+#Crown allometry
+```{r}
+
+```
+
+
+
+#Choet et all on xylem
+```{r}
+choet <- read_csv('~/Desktop/Groundwater Research/Choat_et_al_2012_data.xls .csv') 
+View(choet)
+π#Lets look at the 50 loss by various groups in the data set that may be useful. 
+names(choet)
+unique(choet$Group)
+unique(choet$Species)
+#Get rid of the empty row
+choet1 <- choet[2:nrow(choet),]
+#lets fix these names
+colnames(choet1)[3:8] <- c("xylem50","xylem88","xylem_min_mday", "xylem_min", "xylem50_safety", "xylem88_safety" )
+choet1$Genus <- NA
+for(i in 1:nrow(choet1)){
+  choet1$Genus[i] <- strsplit(choet1$Species, " ")[[i]][1]
+}
+choet1$xylem50 <- as.numeric(choet1$xylem50)
+choet1 %>% group_by(Genus) %>% summarise(mean(xylem50))
+choet1 %>% group_by(Group) %>% summarise(mean(xylem50))
+
+
+
+```
+
+#Sequoia
+```{r}
+sequoia <- read_csv("~/Desktop/Groundwater Research/NPP_REDWOOD_803/data/Redwood_NPP.csv", 
+    skip = 16)
+#this needs a tremendous amount of cleaning and manipulation to become something useful. But it still may be in the future. 
+
+```
+
+Book called ecological forecasting book by Mike Ditze
+
+Next step is to set the grids on the same resolution from the file in the google drive. Use Scypi to parse the netCDF files and get them to the same grid size. 
