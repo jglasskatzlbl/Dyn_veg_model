@@ -1,0 +1,227 @@
+---
+title: "Grid matching"
+author: "Joe Glass-Katz"
+date: "7/26/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(ncdf4)
+library(dplyr)
+library(reshape2)
+```
+
+Open up and look at the fates data set
+
+```{r}
+fates <- nc_open("~/Desktop/Plant_Traits/fates.nc")
+#if you want to look at everything in the file
+#print(fates)
+#but the output is gigantic so best to leave it out
+#Using attributes we can see what is in the file
+attributes(fates)$names
+#List some good details
+print(paste("The file has",fates$nvars,"variables,",fates$ndims,"dimensions and",fates$natts,"NetCDF attributes"))
+#This is a whole lot of variables. Let's list the names to see what we are interested in. 
+attributes(fates$var)$names
+#For now we will use "AGB" --variable 29 which corresponds to BPH_GE_3_CRM in Lemma
+
+#Take a look at the AGB variable's fates attributes (units etc).
+ncatt_get(fates, attributes(fates$var)$names[29])
+# Retrieve a matrix of the AGB data using the ncvar_get function:
+AGB <- ncvar_get(fates, attributes(fates$var)$names[29])
+#Returns a 14X22 grid 
+dim(AGB)
+#All the measured vars appear to be on this same grid.
+
+#Now look into the dimension variables and make sure that they match 
+#This is also how to access any of the other dimensions
+# Retrieve the latitude and longitude values.
+attributes(fates$dim)$names
+fates_lat <- ncvar_get( fates, attributes(fates$dim)$names[2])
+fates_lon <- ncvar_get( fates, attributes(fates$dim)$names[1])
+#The grid is shifted with 360+ negative longs
+print(paste(dim(fates_lat), "latitudes and", dim(fates_lon), "longitudes"))
+#This checks out. Good.
+
+#Need to subtract 360 from fates lat 
+fates_lon <- fates_lon - 360
+# Change the dimension names of our matrix to "lon" and "lat", 
+# and the row and column names to the latitude and longitude values
+dimnames(AGB) <- list(lon=fates_lon, lat=fates_lat)
+
+#Optional transpose of matrix to orient with California
+AGB <- t(AGB)
+#Set the row orientation properly
+AGB <- AGB[ nrow(AGB):1, ]
+
+#Now we will move on to the ADF data and try and get it into this same format.
+#It may make sense to add in values to fit the grids
+```
+
+This section will attempt to shape the ADF file into a 14X22 grid
+
+```{r}
+#load necessary libraries
+library(rgdal)
+library(RColorBrewer)
+library(sp)
+library(raster)
+```
+```{r}
+#set path to data
+dpath <-"~/Desktop/Plant_Traits/Lemma/mr200_2012/w001001x.adf"
+lemma <- new("GDALReadOnlyDataset", dpath)
+#Open file
+getDriver(lemma)
+getDriverLongName(getDriver(lemma))
+lemma1<-asSGDF_GROD(lemma, output.dim=c(200, 200))
+#Plot the grid
+spplot(lemma1, "band1", 
+   at=c(0, 10, 50, 100, 200, 500, 1000, 2500, max(lemma1$band1,
+na.rm=TRUE)), col.regions=brewer.pal(8,"Oranges") )
+
+#summarise
+summary(lemma1)
+
+#Get the proj4 projection of the data
+crsLemma <- lemma1@proj4string
+#I am making the assumption that this data file is the skeleton of the larger file. 
+#I will try to scale this grid to be the same and then check for large file. 
+
+#Now we can convert the coordinates of the netCDF file
+#The initial crs being read in
+crsi <- CRS("+proj=longlat +ellps=GRS80 +datum=NAD83 +no_defs ")
+#Use proj4 for california sector 3
+crsFates <- CRS("+proj=lcc +lat_1=38.43333333333333 +lat_2=37.06666666666667 +lat_0=36.5 +lon_0=-120.5 +x_0=2000000 +y_0=500000 +ellps=GRS80 +units=m +no_defs")
+
+#Make a raster for fates
+extAGB <- extent( t(data.frame(range(fates_lon),range(fates_lat))) )
+rAGB <- raster(AGB, crs = crsi)
+extent(rAGB) <- extAGB
+#Change the projection
+prAGB <- projectRaster(rAGB, crs =crsFates)
+#Plot both for comparison
+plot(rAGB)
+plot(prAGB)
+#Really we want to project the Lemma data onto the AGB data. 
+
+#Make a raster for Lemma
+rLemma <- raster(lemma1)
+plot(rLemma)
+
+#Now need to project onto the same grid so we can do comparisons
+#first project lemma onto the crs of fates
+prLemma <- projectRaster(rLemma, crs=crsFates)
+
+#Now combine the two rasters
+prLemma <- projectRaster(prLemma, prAGB)
+#prLemma is now properly projected. Now we need to layer them for comparison
+#Can make a raster brick or stack
+b <- brick(prAGB, prLemma)
+b
+plot(b)
+
+s <- stack(prAGB, prLemma)
+s
+plot(s)
+#They seem very similar, we'll use Brick for now
+```
+
+Now lets try to read in the whole fates as a raster brick
+
+```{r}
+#load
+fates <- nc_open("~/Desktop/Plant_Traits/fates.nc")
+#Need to determine what the relevant layers of fates are
+attributes(fates$var)$names
+#For now let's take vars 29-47 
+#Do lat lon grab
+fates_lat <- ncvar_get( fates, attributes(fates$dim)$names[2])
+fates_lon <- ncvar_get( fates, attributes(fates$dim)$names[1])
+#get dims
+print(paste(dim(fates_lat), "latitudes and", dim(fates_lon), "longitudes"))
+#fix lon
+fates_lon <- fates_lon - 360
+#define raster
+crsi <- CRS("+proj=longlat +ellps=GRS80 +datum=NAD83 +no_defs ")
+ext_fates <- extent( t(data.frame(range(fates_lon),range(fates_lat))))
+rfates <-raster(nrows =22, ncols=14, crs=crsi, ext=ext_fates)
+sfates <- stack(rfates)
+for(i in 29:47){
+  #read in the layer
+  layer<- ncvar_get(fates, attributes(fates$var)$names[i])
+  #attach the dimension names
+  dimnames(layer) <- list(lon=fates_lon, lat=fates_lat)
+  if(is.matrix(layer)){
+    #transpose to proper orientation
+    layer <-t(layer)
+    #fix lat ordering
+    layer <- layer[ 22:1, ]
+  }else{
+    #For now just take first of 13 layers (ask Charlie about this)
+    layer <- layer[,,1]
+    #transpose to proper orientation
+    layer <-t(layer)
+    #fix lat ordering
+    layer <- layer[ 22:1,] 
+  }
+  #create raster of layer
+  rlayer <- raster(layer, crs = crsi)
+  #set proper extent
+  extent(rlayer) <- ext_fates
+  #add to stack
+  sfates <- stack(sfates, rlayer)
+}
+names(sfates) <- c("base",attributes(fates$var)$names[29:47])
+#We now have a large stack of rasters. Project to x,y grid
+psfates <- projectRaster(sfates, crs =crsFates)
+
+#Now add in the lemma (the large file)
+dpath <-"~/Desktop/Plant_Traits/Lemma/mr200_2012/w001001.adf"
+lemma <- new("GDALReadOnlyDataset", dpath)
+#Open file
+getDriver(lemma)
+getDriverLongName(getDriver(lemma))
+lemma1<-asSGDF_GROD(lemma, output.dim=c(200, 200))
+rlemma <- raster(lemma1)
+prlemma <-projectRaster(prLemma, psfates)
+psfates<- stack(psfates, prlemma)
+names(psfates[length(names(psfates))])<- "lemma_layer_1"
+
+
+
+
+
+
+
+
+
+
+
+
+
+#can also read in netcdf directly to raster
+rastFates <- raster("~/Desktop/Plant_Traits/fates.nc")
+#but this appears to only read in the first layer (and is flipped)
+
+
+
+
+
+
+
+```
+
+
+
+
+
+
+
+
+
