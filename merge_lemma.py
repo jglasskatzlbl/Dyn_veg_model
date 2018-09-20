@@ -8,6 +8,7 @@ the notes file.
 
 '''
 
+
 import pandas as pd
 import os
 import numpy as np
@@ -37,7 +38,7 @@ for spec in sp:
 
 #Bind into new dataframe
 df = pd.DataFrame({'Species':x})
-df.shape
+
 #read in the bulk of work
 priorities= pd.read_csv('Priorities.csv')
 #clean names
@@ -48,7 +49,7 @@ priorities.loc[:,'Species'] = priorities.Species.str.capitalize()
 
 #merge the two foundational data sets together
 df = df.merge(priorities, how ='left', on = 'Species')
-df.shape
+
 #check performance of the merge
 #df.isna().sum()
 #No AGB matches?? Will need to correct later. At min, have AGB eq's for general
@@ -64,7 +65,7 @@ le = pd.read_csv('WrightReich_leaf_economics.csv', skiprows = range(0,10))
 
 #merge in the first of the data sets
 df = df.merge(ch, how='left', on = 'Species')
-df.shape
+
 #clean it up
 df = df.dropna(axis = 'columns',how='all')
 #prep wood density
@@ -73,7 +74,7 @@ wd = wd[['Species','Wood_Density']]
 wd = wd.groupby('Species').agg({'Wood_Density':'mean'})
 #merge then drop duplicates
 df = df.merge(wd, how='left', on = 'Species')
-df.shape
+
 df['wood_density'] = df['wood_density'].fillna(df['Wood_Density'])
 df = df.drop(['Wood_Density'], axis = 'columns')
 
@@ -111,7 +112,7 @@ nacp_1 = nacp1.groupby('Species').agg({ 'LAI_O' : 'mean',
 nacp_1['reference'] = 'NACP_TERRA_bp'
 #merge it in
 df = df.merge(nacp_1, how = 'left', on = 'Species')
-df.shape
+
 
 #now add in nacp2
 nacp2 = nacp2.replace(to_replace =-9999,value =np.NaN)
@@ -130,10 +131,17 @@ nacp_2 = nacp2.groupby('Species').agg({ 'LEAF_PSA':'mean',
 nacp_2['reference'] = 'NACP_TERRA_lt'
 
 df = df.merge(nacp_2, how = 'left', on = 'Species')
-df.shape
+
 
 #Add in leaf economics
 le1 = le.groupby('Species').mean()
 le1['reference'] = 'WrightReich'
 df = df.merge(le1, how = 'left', on = 'Species')
-df.shape
+#get rid of uneeded column
+df = df.drop(['allom_d2bl1'], axis = 'columns')
+
+#Merge in other useful data sets
+
+
+
+df.to_csv('/Users/jsg1/Desktop/Plant_Traits/plant_traits.csv')
